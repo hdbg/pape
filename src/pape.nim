@@ -1,4 +1,4 @@
-import std/[sets, tables]
+import std/[sets, tables, enumutils, typetraits]
 
 type
   COFFMachine* {.pure, size:2.} = enum
@@ -29,7 +29,7 @@ type
     LoongArch32 = 0x6232
     LoongArch64 = 0x6264
     
-    AMD64 = 0x8864
+    AMD64 = 0x8664
     M32R = 0x9041
     ARM64 = 0xaa64
     
@@ -85,11 +85,11 @@ type
     ptrSymbolTable: uint32
     numOfSymbols*: uint32
     sizeOfOptional: uint16
-    characteristics*: set[COFFCharacteristics]
+    characteristics*: uint16
 
   PEMagic* {.pure, size:2.} = enum
-    PE32
-    PE64
+    PE32 = 0x10b
+    PE64 = 0x20b
 
   DataDirectoryRaw = object
     va, size: uint32
@@ -112,7 +112,7 @@ type
 
     sizeOfImage, sizeOfHeaders, checkSum: uint32
     subSystem: WinSubsystem
-    dllCharacteristics: set[DLLCharacteristics]
+    dllCharacteristics: uint16
 
     sizeOfStackReserve, sizeOfStackCommit, sizeOfHeapReserve, sizeOfHeapCommit: uint32
     ldrFlags: uint32
@@ -137,7 +137,7 @@ type
 
     sizeOfImage, sizeOfHeaders, checkSum: uint32
     subSystem: WinSubsystem
-    dllCharacteristics: set[DLLCharacteristics]
+    dllCharacteristics: uint16
 
     sizeOfStackReserve, sizeOfStackCommit, sizeOfHeapReserve, sizeOfHeapCommit: uint64
     ldrFlags: uint32
@@ -208,7 +208,7 @@ type
     name*: string
     virtualSize*, virtualAddr*: int
 
-    sizeOfRawData*: int
+    data*: seq[byte] # get raw data size by section.data.len
     characteristics*: HashSet[SectionFlags]
 
   #[
@@ -230,6 +230,7 @@ type
     IAT_Table
     DelayImportDescriptor
     CLRRuntime
+    End # Reserved
 
   DataDirectory* = object
     virtualAddr, virtualSize: int
@@ -246,18 +247,21 @@ type
 
     # sizes of
     size*: tuple[code, initializedData, uninitializedData, image, header: int]
-    bases*: tuple[image, data, code: int]
+    base*: tuple[image, data, code: int]
     alignment*: tuple[file, section: int]
 
     # versions
-    osVer*: VerDouble
-    imageVer*: VerDouble
-    subSystemVer*: VerDouble
-    winVer*: int
+    ver*: tuple[
+      image: VerDouble,
+      os: VerDouble,
+      subSystem: VerDouble,
+      linker: VerDouble,
+      win: int
+    ]
 
     # memory
-    stack*: tuple[reserve, commit: int]
-    heap*: tuple[reserve, commit: int]
+    stack*: tuple[reserve, commit: int64]
+    heap*: tuple[reserve, commit: int64]
 
     # coff related
     machine*: COFFMachine
@@ -268,6 +272,7 @@ type
     dllCharacteristics*: set[DLLCharacteristics]
 
     dataDirs*: Table[DataDirs, DataDirectory]
+    sections*: seq[Section]
 
 proc `=destroy`(x: var PE) = 
   if x.mem.wasAlloc and cast[pointer](x.buffer) != nil:
@@ -281,8 +286,16 @@ proc `=copy`(dest: var PE, source: PE) =
     dest.buffer = cast[ptr UncheckedArray[byte]](alloc(source.mem.count))
     copyMem(dest.buffer, source.buffer, source.mem.count)
 
+# helpers
 proc seek[T](p: PE, offset: int): T = 
   cast[T](cast[int](p.buffer) + offset)
+
+proc numToSet[T: enum, Y: SomeNumber](src: Y): set[T] = 
+  assert sizeof(Y) == sizeof(T)
+
+  for item in T:
+    if (int64(ord(item)) and int64(src)) != 0:
+      result.incl item  
 
 proc parse(p: var PE) = 
   let asDos = cast[ptr DosHeaderRaw](p.buffer)
@@ -292,9 +305,56 @@ proc parse(p: var PE) =
   doAssert asCoff.magic == ['P', 'E', '\x00', '\0']
 
   p.machine = asCoff.machine
-  p.coffCharacteristics = asCoff.characteristics
+  p.coffCharacteristics =  numToSet[COFFCharacteristics, uint16](asCoff.characteristics)
 
-  p.magic =  cast[ptr PEMagic](cast[int](asCoff) + sizeof(COFF))[]
+  p.magic = cast[ptr PEMagic](cast[int](p.buffer) + sizeof(COFF) + asDos.e_lfanew.int)[]
+
+  template common = 
+    mixin rawPe
+    p.ver.linker = (major: rawPe.majorLinker.int, minor: rawPe.minorLinker.int)
+    p.size = (
+      code: rawPe.sizeOfCode.int, initializedData: rawPe.sizeOfInitialized.int,
+      uninitializedData: rawPe.sizeOfUnInitialized.int,
+      image: rawPe.sizeOfImage.int, header: rawPe.sizeOfHeaders.int 
+    )
+    p.base = (
+      image: rawPe.imageBase.int, data: -1, code: rawPe.baseOfCode.int
+    )
+    p.alignment = (
+      file: rawPe.fileAlignment.int, section: rawPe.sectionAlignment.int
+    )
+
+    p.ver.os = (major: rawPe.majorOsVer.int, minor: rawPe.minorOsVer.int)
+
+    p.ver.image = (major: rawPe.majorImageVer.int, minor: rawPe.minorImageVer.int)
+    p.ver.subSystem = (major: rawPe.majorSubSystemVer.int, minor: rawPe.minorSubsytemVer.int)
+    
+    p.subSystem = rawPe.subSystem
+    p.dllCharacteristics = numToSet[DLLCharacteristics, uint16](rawPe.dllCharacteristics)
+
+    # debugEcho "Stack: ", rawPe.sizeOfHeapReserve
+
+    p.stack = (reserve: rawPe.sizeOfHeapReserve.int64, commit: rawPe.sizeOfStackCommit.int64)
+    p.heap = (reserve: rawPe.sizeOfHeapReserve.int64, commit: rawPe.sizeOfHeapCommit.int64)
+
+    # parse data dirs
+    let dataDirs = cast[ptr UncheckedArray[DataDirectoryRaw]](cast[int](rawPe) + sizeof(pointerBase(type rawPe)))
+    for name in low(DataDirs)..DataDirs(rawPe.numberOfRvaAndSizes.int-1):
+      if name == DataDirs.End: break
+      echo name
+      p.dataDirs[name] = DataDirectory(virtualAddr: int dataDirs[ord(name)].va, virtualSize: int dataDirs[ord(name)].size)
+
+      # echo unsafeAddr(dataDirs[][ord(name)])
+
+
+  if p.magic == PEMagic.PE32:
+    let rawPe = cast[ptr PE32Raw](cast[int](asCoff) + sizeof(COFF))
+    common()
+
+    p.base.data = rawPe.baseOfData.int
+  else:
+    let rawPe = cast[ptr PE64Raw](cast[int](asCoff) + sizeof(COFF))
+    common()
 
 # constructors
 
@@ -303,11 +363,11 @@ proc newFromFile*(_: type PE, name: string): PE =
   # result.buffer.reserve f.getFileSize
 
   result.mem.wasAlloc = true
-  result.mem.size = f.getFileSize
+  result.mem.count = f.getFileSize.int
 
   result.buffer = cast[ptr UncheckedArray[byte]](alloc(f.getFileSize))
 
-  f.readBuffer result.buffer, f.getFileSize
+  discard f.readBuffer(cast[pointer](result.buffer), f.getFileSize)
 
   result.parse
 
