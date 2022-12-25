@@ -1,4 +1,4 @@
-import std/sets
+import std/[sets, tables]
 
 type
   COFFMachine* {.pure, size:2.} = enum
@@ -67,8 +67,18 @@ type
     WDMDriver = 0x2000
     GuardCF = 0x4000
     TerminalServerAware = 0x8000
-    
+  
+  DosHeaderRaw = object
+    e_magic: array[2, char]
+    e_cblp, e_cp, e_crlc, e_cparhdr, e_min_alloc, e_maxalloc: uint16
+    e_ss, e_esp, e_csym, e_ip, e_cs, e_lfarlc, e_ovno: uint16
+    e_res1: array[8, char]
+    e_oemid, e_oeminfo: uint16
+    e_res2: array[0x14, char]
+    e_lfanew: uint32
+
   COFF* = object
+    magic: array[4, char]
     machine*: COFFMachine
     sectionsCount*: uint16
     timestamp*: uint32
@@ -192,6 +202,8 @@ type
 
 # Front-end api
 type
+  VerDouble* = tuple[major, minor: int]
+
   Section* = object
     name*: string
     virtualSize*, virtualAddr*: int
@@ -199,11 +211,107 @@ type
     sizeOfRawData*: int
     characteristics*: HashSet[SectionFlags]
 
-  PE* = ref object
+  #[
+    Because data dirs order always preserved, but theirs count varies, we should indicate which are available
+  ]#
+  DataDirs* {.pure.} = enum
+    Export
+    Import
+    Resource
+    Exception
+    Certificate
+    BaseRelocation
+    Debug
+    Architecture
+    GlobalPtr
+    TLS_Table
+    LoadConfig
+    BoundImport
+    IAT_Table
+    DelayImportDescriptor
+    CLRRuntime
+
+  DataDirectory* = object
+    virtualAddr, virtualSize: int
+
+  MemInfo = object
+    wasAlloc: bool
+    count: int
+
+  PE* = object
+    buffer: ptr UncheckedArray[byte]
+    mem: MemInfo  # indicator for destructor if buffer was allocated
+
     magic*: PEMagic
-    linkerVer*: tuple[major, minor: int]
 
-    entrypoint, imagebase: int
+    # sizes of
+    size*: tuple[code, initializedData, uninitializedData, image, header: int]
+    bases*: tuple[image, data, code: int]
+    alignment*: tuple[file, section: int]
 
+    # versions
+    osVer*: VerDouble
+    imageVer*: VerDouble
+    subSystemVer*: VerDouble
+    winVer*: int
 
+    # memory
+    stack*: tuple[reserve, commit: int]
+    heap*: tuple[reserve, commit: int]
+
+    # coff related
+    machine*: COFFMachine
+    coffCharacteristics: set[COFFCharacteristics]
+
+    entrypoint*: int
+    subsystem*: WinSubsystem
+    dllCharacteristics*: set[DLLCharacteristics]
+
+    dataDirs*: Table[DataDirs, DataDirectory]
+
+proc `=destroy`(x: var PE) = 
+  if x.mem.wasAlloc and cast[pointer](x.buffer) != nil:
+    dealloc cast[pointer](x.buffer)
+
+proc `=copy`(dest: var PE, source: PE) = 
+  copyMem(addr dest, unsafeAddr source, sizeof PE)
+
+  # copy buffer
+  if source.mem.wasAlloc:
+    dest.buffer = cast[ptr UncheckedArray[byte]](alloc(source.mem.count))
+    copyMem(dest.buffer, source.buffer, source.mem.count)
+
+proc seek[T](p: PE, offset: int): T = 
+  cast[T](cast[int](p.buffer) + offset)
+
+proc parse(p: var PE) = 
+  let asDos = cast[ptr DosHeaderRaw](p.buffer)
+  doAssert asDos.e_magic == ['M', 'Z']
+
+  let asCoff = seek[ptr COFF](p, asDos.e_lfanew.int)
+  doAssert asCoff.magic == ['P', 'E', '\x00', '\0']
+
+  p.machine = asCoff.machine
+  p.coffCharacteristics = asCoff.characteristics
+
+  p.magic =  cast[ptr PEMagic](cast[int](asCoff) + sizeof(COFF))[]
+
+# constructors
+
+proc newFromFile*(_: type PE, name: string): PE = 
+  var f = name.open
+  # result.buffer.reserve f.getFileSize
+
+  result.mem.wasAlloc = true
+  result.mem.size = f.getFileSize
+
+  result.buffer = cast[ptr UncheckedArray[byte]](alloc(f.getFileSize))
+
+  f.readBuffer result.buffer, f.getFileSize
+
+  result.parse
+
+proc newFromPtr*(_: type PE, address: pointer): PE = 
+  result.mem.wasAlloc = false
+  result.buffer = cast[ptr UncheckedArray[byte]](address)
 
