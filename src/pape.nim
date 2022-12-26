@@ -241,6 +241,10 @@ type
     buffer: ptr UncheckedArray[byte]
     mem: MemInfo  # indicator for destructor if buffer was allocated
 
+    dos: ptr DosHeaderRaw
+    coff: ptr COFF
+    rawPe: pointer
+
     magic*: PEMagic
 
     # sizes of
@@ -298,13 +302,51 @@ proc numToSet[T: enum, Y: SomeNumber](src: Y): set[T] =
 macro enumRightRange(a: typed): untyped = 
   result = newNimNode(nnkBracket).add(a.getType[1][1..^1])
 
+proc getRawSize(p: PE): int = 
+  if p.magic == PEMagic.PE32: sizeof(PE32Raw) else: sizeof(PE64Raw)
+
+proc parseDataDirs(p: var PE, rvaCount: int) = 
+  let dataDirs = cast[ptr UncheckedArray[DataDirectoryRaw]](
+    cast[int](p.rawPe) + p.getRawSize
+  )
+  for name in low(DataDirs)..DataDirs(rvaCount-1):
+    if name == DataDirs.End: break
+    let d = dataDirs[ord(name)]
+    p.dataDirs[name] = DataDirectory(
+      virtualAddr: int d.va, virtualSize: int d.size
+    )
+
+proc parseSections(p: var PE, rvaCount: int) = 
+  let 
+    sections = cast[ptr UncheckedArray[PESectionRaw]](
+      cast[int](p.rawPe) + p.getRawSize + (sizeof(DataDirectoryRaw) * rvaCount)
+    )
+    emptySection = block:
+      var res: PESectionRaw
+      zeroMem unsafeAddr res, sizeof res
+      res
+  var currentSection = 0
+  while sections[currentSection] != emptySection and currentSection < p.coff.sectionsCount.int:
+    let curr = sections[currentSection]
+    var newSection = Section(name: $curr.name, virtualSize: curr.virtualSize.int, virtualAddr: curr.virtualAddr.int)
+    
+    for f in SectionFlags.enumRightRange:
+      if (cast[uint32](ord(f)) and curr.characteristics) != 0:
+        newSection.characteristics.incl cast[SectionFlags](cast[uint32](ord(f)))
+  
+    newSection.data.setLen curr.sizeOfRaw
+    copyMem(unsafeAddr(newSection.data[0]), cast[pointer](cast[int](p.buffer) + curr.ptrToRaw.int), curr.sizeOfRaw)
+    p.sections.add move(newSection)
+    currentSection.inc
 
 proc parse(p: var PE) = 
   let asDos = cast[ptr DosHeaderRaw](p.buffer)
   doAssert asDos.e_magic == ['M', 'Z']
+  p.dos = asDos
 
   let asCoff = seek[ptr COFF](p, asDos.e_lfanew.int)
   doAssert asCoff.magic == ['P', 'E', '\x00', '\0']
+  p.coff = asCoff
 
   p.machine = asCoff.machine
   p.coffCharacteristics =  numToSet[COFFCharacteristics, uint16](asCoff.characteristics)
@@ -339,40 +381,11 @@ proc parse(p: var PE) =
     p.stack = (reserve: rawPe.sizeOfHeapReserve.int64, commit: rawPe.sizeOfStackCommit.int64)
     p.heap = (reserve: rawPe.sizeOfHeapReserve.int64, commit: rawPe.sizeOfHeapCommit.int64)
 
-    # parse data dirs
-    let dataDirs = cast[ptr UncheckedArray[DataDirectoryRaw]](cast[int](rawPe) + sizeof(pointerBase(type rawPe)))
-    for name in low(DataDirs)..DataDirs(rawPe.numberOfRvaAndSizes.int-1):
-      if name == DataDirs.End: break
-      let d = dataDirs[ord(name)]
-      p.dataDirs[name] = DataDirectory(
-        virtualAddr: int d.va, virtualSize: int d.size
-      )
+    p.parseDataDirs int rawPe.numberOfRvaAndSizes
+    p.parseSections int rawPe.numberOfRvaAndSizes
 
     # parse sections
-    let 
-      sections = cast[ptr UncheckedArray[PESectionRaw]](
-        cast[int](rawPe) + sizeof(pointerBase(type rawPe)) + (sizeof(DataDirectoryRaw) * rawPe.numberOfRvaAndSizes.int)
-      )
-      emptySection = block:
-        var res: PESectionRaw
-        zeroMem unsafeAddr res, sizeof res
-        res
-    var currentSection = 0
-
-    while sections[currentSection] != emptySection and currentSection < asCoff.sectionsCount.int:
-      let curr = sections[currentSection]
-      var newSection = Section(name: $curr.name, virtualSize: curr.virtualSize.int, virtualAddr: curr.virtualAddr.int)
-
-      
-      for f in SectionFlags.enumRightRange:
-        if (cast[uint32](ord(f)) and curr.characteristics) != 0:
-          newSection.characteristics.incl cast[SectionFlags](cast[uint32](ord(f)))
     
-      newSection.data.setLen curr.sizeOfRaw
-      copyMem(unsafeAddr(newSection.data[0]), cast[pointer](cast[int](p.buffer) + curr.ptrToRaw.int), curr.sizeOfRaw)
-
-      p.sections.add move(newSection)
-      currentSection.inc
 
   if p.magic == PEMagic.PE32:
     let rawPe = cast[ptr PE32Raw](cast[int](asCoff) + sizeof(COFF))
