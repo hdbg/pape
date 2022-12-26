@@ -1,4 +1,4 @@
-import std/[sets, tables, enumutils, typetraits]
+import std/[sets, tables, enumutils, typetraits, segfaults, strutils]
 
 type
   COFFMachine* {.pure, size:2.} = enum
@@ -152,42 +152,39 @@ type
     - Sections
   ]#
 
-  PEDataDirsRaw {.packed.} = object
-    exports, imports, rsrc, exception, cert: DataDirectoryRaw
-    baseReloc, debug, arch, globalPtr, tls: DataDirectoryRaw
-    loadConfig, boundImport, iat, delayImport, clrRuntime: DataDirectoryRaw
-
   SectionFlags* {.pure, size:4.} = enum
-    NoPad = 0x00000008
-    ContainsCode = 0x00000020
-    ContainsInitializedData = 0x00000040
+    NoPad =                     0x00000008
+    ContainsCode =              0x00000020
+    ContainsInitializedData =   0x00000040
     ContainsUnInitializedData = 0x00000080
-    LinkInfo = 0x00000200
-    LinkRemove = 0x00000800
-    ComDat = 0x00001000
-    GPRelative = 0x00008000
-    AlignOnByte = 0x00100000
-    AlignOn2Bytes = 0x00200000
-    AlignOn4Bytes = 0x00300000
-    AlignOn8Bytes = 0x00400000
-    AlignOn16Bytes = 0x00500000
-    AlignOn32Bytes = 0x00600000
-    AlignOn64Bytes = 0x00700000
-    AlignOn128Bytes = 0x00800000
-    AlignOn256Bytes = 0x00900000
-    AlignOn512Bytes = 0x00A00000
-    AlignOn1024Bytes = 0x00B00000
-    AlignOn2048Bytes = 0x00C00000
-    AlignOn4096Bytes = 0x00D00000
-    AlignOn8192Bytes = 0x00E00000
-    ExtendedRelocations = 0x01000000
-    Discardable = 0x02000000
-    MemNotCached = 0x04000000
-    MemNotPaged = 0x08000000
-    MemShared = 0x10000000
-    MemExecute = 0x20000000
-    MemRead = 0x40000000
-    MemWrite = 0x80000000
+    LinkInfo =                  0x00000200
+    LinkRemove =                0x00000800
+    ComDat =                    0x00001000
+    GPRelative =                0x00008000
+
+    AlignOnByte =               0x00100000
+    AlignOn2Bytes =             0x00200000
+    AlignOn4Bytes =             0x00300000
+    AlignOn8Bytes =             0x00400000
+    AlignOn16Bytes =            0x00500000
+    AlignOn32Bytes =            0x00600000
+    AlignOn64Bytes =            0x00700000
+    AlignOn128Bytes =           0x00800000
+    AlignOn256Bytes =           0x00900000
+    AlignOn512Bytes =           0x00A00000
+    AlignOn1024Bytes =          0x00B00000
+    AlignOn2048Bytes =          0x00C00000
+    AlignOn4096Bytes =          0x00D00000
+    AlignOn8192Bytes =          0x00E00000
+
+    ExtendedRelocations =       0x01000000
+    Discardable =               0x02000000
+    MemNotCached =              0x04000000
+    MemNotPaged =               0x08000000
+    MemShared =                 0x10000000
+    MemExecute =                0x20000000
+    MemRead =                   0x40000000
+    MemWrite =                  0x80000000
 
   PESectionRaw {.packed.} = object
     name: array[8, char]
@@ -341,11 +338,40 @@ proc parse(p: var PE) =
     let dataDirs = cast[ptr UncheckedArray[DataDirectoryRaw]](cast[int](rawPe) + sizeof(pointerBase(type rawPe)))
     for name in low(DataDirs)..DataDirs(rawPe.numberOfRvaAndSizes.int-1):
       if name == DataDirs.End: break
-      echo name
-      p.dataDirs[name] = DataDirectory(virtualAddr: int dataDirs[ord(name)].va, virtualSize: int dataDirs[ord(name)].size)
+      let d = dataDirs[ord(name)]
+      p.dataDirs[name] = DataDirectory(
+        virtualAddr: int d.va, virtualSize: int d.size
+      )
 
-      # echo unsafeAddr(dataDirs[][ord(name)])
+    # parse sections
+    let 
+      sections = cast[ptr UncheckedArray[PESectionRaw]](
+        cast[int](rawPe) + sizeof(pointerBase(type rawPe)) + (sizeof(DataDirectoryRaw) * rawPe.numberOfRvaAndSizes.int)
+      )
+      emptySection = block:
+        var res: PESectionRaw
+        zeroMem unsafeAddr res, sizeof res
+        res
+    var currentSection = 0
 
+    while sections[currentSection] != emptySection and currentSection < asCoff.sectionsCount.int:
+      let curr = sections[currentSection]
+      var newSection = Section(name: $curr.name, virtualSize: curr.virtualSize.int, virtualAddr: curr.virtualAddr.int)
+
+      # var currFlag = low(SectionFlags)
+
+      # while currFlag != high(SectionFlags):
+      #   if (ord(currFlag) and curr.characteristics.int) != 0:
+      #     newSection.characteristics.incl currFlag
+
+      #   currFlag.succ
+
+      newSection.data.setLen curr.sizeOfRaw
+
+      copyMem(unsafeAddr(newSection.data[0]), cast[pointer](cast[int](p.buffer) + curr.ptrToRaw.int), curr.sizeOfRaw)
+      p.sections.add move(newSection)
+
+      currentSection.inc
 
   if p.magic == PEMagic.PE32:
     let rawPe = cast[ptr PE32Raw](cast[int](asCoff) + sizeof(COFF))
