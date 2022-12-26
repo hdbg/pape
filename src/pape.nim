@@ -1,4 +1,4 @@
-import std/[sets, tables, enumutils, typetraits, segfaults, strutils]
+import std/[sets, tables, enumutils, typetraits, segfaults, strutils, macros]
 
 type
   COFFMachine* {.pure, size:2.} = enum
@@ -152,7 +152,8 @@ type
     - Sections
   ]#
 
-  SectionFlags* {.pure, size:4.} = enum
+  SectionFlags* {.pure, size:8.} = enum
+
     NoPad =                     0x00000008
     ContainsCode =              0x00000020
     ContainsInitializedData =   0x00000040
@@ -294,6 +295,10 @@ proc numToSet[T: enum, Y: SomeNumber](src: Y): set[T] =
     if (int64(ord(item)) and int64(src)) != 0:
       result.incl item  
 
+macro enumRightRange(a: typed): untyped = 
+  result = newNimNode(nnkBracket).add(a.getType[1][1..^1])
+
+
 proc parse(p: var PE) = 
   let asDos = cast[ptr DosHeaderRaw](p.buffer)
   doAssert asDos.e_magic == ['M', 'Z']
@@ -358,19 +363,15 @@ proc parse(p: var PE) =
       let curr = sections[currentSection]
       var newSection = Section(name: $curr.name, virtualSize: curr.virtualSize.int, virtualAddr: curr.virtualAddr.int)
 
-      # var currFlag = low(SectionFlags)
-
-      # while currFlag != high(SectionFlags):
-      #   if (ord(currFlag) and curr.characteristics.int) != 0:
-      #     newSection.characteristics.incl currFlag
-
-      #   currFlag.succ
-
+      
+      for f in SectionFlags.enumRightRange:
+        if (cast[uint32](ord(f)) and curr.characteristics) != 0:
+          newSection.characteristics.incl cast[SectionFlags](cast[uint32](ord(f)))
+    
       newSection.data.setLen curr.sizeOfRaw
-
       copyMem(unsafeAddr(newSection.data[0]), cast[pointer](cast[int](p.buffer) + curr.ptrToRaw.int), curr.sizeOfRaw)
-      p.sections.add move(newSection)
 
+      p.sections.add move(newSection)
       currentSection.inc
 
   if p.magic == PEMagic.PE32:
