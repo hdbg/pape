@@ -51,7 +51,7 @@ block:
 
     test "data directories":
       check:
-        p.dirs.len == 14
+        p.dirs.len == 16
 
         p.dirs[Dir.Export] == DataDirectory(virtualAddr: 0xF1BB90, virtualSize: 0x61898)
         p.dirs[Dir.Import] == DataDirectory(virtualAddr: 0x1142E00, virtualSize: 0x58C)

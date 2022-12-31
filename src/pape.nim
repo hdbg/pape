@@ -32,6 +32,7 @@ type
     IAT_Table
     DelayImportDescriptor
     CLRRuntime
+    Reserved # unused
 
   DataDirectory* = object
     virtualAddr*, virtualSize*: int
@@ -83,6 +84,8 @@ type
 
     dirs*: Table[Dir, DataDirectory]
     sections*: seq[Section]
+
+    # details
     imports*: seq[Import]
 
 
@@ -108,8 +111,6 @@ proc resolve(p: PEImage, offset: int): ptr byte =
     if offset >= s.virtualAddr and offset <= (s.virtualAddr + s.virtualSize):
       return cast[ptr byte](unsafeAddr(s.data[offset - s.virtualAddr]))
 
-proc seek[T](p: PEImage, offset: int): T = 
-  cast[T](cast[int](p.buffer) + offset)
 
 # parsing
 type
@@ -119,6 +120,9 @@ type
     dos: ptr DosHeaderRaw
     coff: ptr COFF
     pe: int
+
+    optionalSize: int
+    numberOfRvaAndSizes: int
 
 converter toInt[T](x: ptr T): int = 
   cast[int](x)
@@ -133,8 +137,58 @@ proc numToSet[T: enum, Y: SomeNumber](src: Y): set[T] =
     if (int64(ord(item)) and int64(src)) != 0:
       result.incl item  
 
-proc parseOptional[T: PE32Raw or PE64Raw](img: PEImage, info: ParseInfo) = 
+macro enumRightRange(a: typed): untyped = 
+  result = newNimNode(nnkBracket).add(a.getType[1][1..^1])
+
+using
+  img: PEImage
+  info: ParseInfo
+
+proc parseSections(img, info) = 
+  let secRaw = cast[ptr UncheckedArray[PESectionRaw]](info.pe + info.optionalSize + sizeof(DataDirectoryRaw) * len(img.dirs))
+  var currIndex = 0
+
+  while (not isZeroMem secRaw[currIndex]) and (currIndex < info.coff.sectionsCount.int):
+    let section = secRaw[currIndex]
+    var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr)
+
+    # set name
+    for n in section.name:
+      if n == '\0': break
+      result.name.add n
+
+    # characteristics
+    for f in SectionFlags.enumRightRange:
+      if (cast[uint32](ord(f)) and section.characteristics) != 0:
+        result.characteristics.incl cast[SectionFlags](cast[uint32](ord(f)))
+
+    
+    # copy data
+    if section.ptrToRaw != 0:
+      result.data.setLen section.sizeOfRaw
+
+      copyMem(
+        addr result.data[0], 
+        cast[pointer](info.buffer + section.ptrToRaw.int), 
+        result.data.len
+      )
+      img.sections.add move(result)
+
+    currIndex.inc
+
+proc parseDataDirs(img, info) = 
+  let dirsRaw = cast[ptr UncheckedArray[DataDirectoryRaw]](info.pe + info.optionalSize)
+
+  for d in low(Dir)..Dir(info.numberOfRvaAndSizes-1):
+    img.dirs[d] = DataDirectory(
+      virtualAddr: int dirsRaw[d.ord].va, virtualSize: int dirsRaw[d.ord].size
+    )
+
+proc parseOptional[T: PE32Raw or PE64Raw](img, info) = 
   let pe = cast[ptr T](info.pe)
+
+  info.optionalSize = sizeof(T)
+  info.numberOfRvaAndSizes = int pe.numberOfRvaAndSizes
 
   img.size = (
     code: int pe.sizeOfCode, initializedData: int pe.sizeOfInitialized, 
@@ -163,7 +217,7 @@ proc parseOptional[T: PE32Raw or PE64Raw](img: PEImage, info: ParseInfo) =
 
   img.dllCharacteristics = numToSet[DLLCharacteristics, type(pe.dllCharacteristics)](pe.dllCharacteristics)
 
-proc parse(img: PEImage, info: ParseInfo) = 
+proc parse(img, info) = 
   info.dos = toPtr[DosHeaderRaw] info.buffer
 
   if info.dos.e_magic != ['M', 'Z']:
@@ -185,6 +239,9 @@ proc parse(img: PEImage, info: ParseInfo) =
   elif img.magic == PEMagic.PE64: parseOptional[PE64Raw](img, info)
   else:
     raise PAPEDefect.newException("Invalid Optional magic")
+
+  img.parseDataDirs info
+  img.parseSections info
 
 # ctor
 proc newFromFile*(_: type PEImage, fileName: string): PEImage = 
