@@ -5,18 +5,33 @@
 #
 # To run these tests, simply execute `nimble test`.
 
-import std/[unittest, os, options, tables]
+import std/[unittest, os, options, tables, strutils, strformat, options]
 
 import pape
 
 let exePath = absolutePath("tests" / "Audacity.exe")
 
+let d3d  = PEImage.newFromFile("tests" / "kernel32.dll") 
+
+echo "#############"
+for e in d3d.exports.entries:
+  let n = if e.name.isSome(): e.name.get else: ""
+
+  let addrS = if e.kind == ExportKind.Real: &"Addr: ({toHex(e.address)})" else: &"Forward: ({e.double})"
+
+  echo &"Name: ({n}) Ord: ({e.ordinal.toHex}) {addrS}"
+
+echo "#############"
+
 # parsing
 block:
+  break
+
   suite "Loading":
 
     test "from file":
       var p = PEImage.newFromFile(exePath)
+      # echo p.exports.entries
 
   var p = PEImage.newFromFile(exePath)
   suite "General info":

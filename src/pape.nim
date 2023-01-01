@@ -42,7 +42,6 @@ type
     Name
 
   Import* = object
-    module*: string
     case kind*: ImportKind
     of ImportKind.Ordinal:
       ordinal*: int
@@ -50,6 +49,20 @@ type
       name*: string
     hint*: int
     address*: int         # address to which write the imported symbol
+
+  ExportKind* {.pure.} = enum
+    Real
+    Forwarder
+
+  Export* = object
+    name*: Option[string]
+    ordinal*: int
+    case kind*: ExportKind
+    of Real:
+      address*: int
+    of Forwarder:
+      double*: string
+
 
   PEImage* = ref object
     magic*: PEMagic
@@ -86,14 +99,21 @@ type
     sections*: seq[Section]
 
     # details
-    imports*: seq[Import]
+    imports*: Table[string, seq[Import]]
+    exports*: tuple[
+      timestamp: Time,
+      ver: VerDouble,
+      moduleName: string,
+      ordinalBase: int,
+
+      entries: seq[Export]
+    ]
 
 
 # exceptions
 type
   PAPEDefect = object of Defect
   PAPEException = object of Exception
-
 
 # helpers
 proc isZeroMem[X](val: X): bool = 
@@ -110,6 +130,8 @@ proc resolve(p: PEImage, offset: int): ptr byte =
   for s in p.sections:
     if offset >= s.virtualAddr and offset <= (s.virtualAddr + s.virtualSize):
       return cast[ptr byte](unsafeAddr(s.data[offset - s.virtualAddr]))
+
+  raise PAPEException.newException("Can't resolve offset by virtual address: " & tohex(offset))
 
 
 # parsing
@@ -140,9 +162,59 @@ proc numToSet[T: enum, Y: SomeNumber](src: Y): set[T] =
 macro enumRightRange(a: typed): untyped = 
   result = newNimNode(nnkBracket).add(a.getType[1][1..^1])
 
+proc `$`(x: pointer): string = 
+  var 
+    arr = cast[ptr UncheckedArray[char]](x)
+    index = 0
+
+  while arr[index] != '\0':
+    result.add arr[index]
+    index.inc
+
 using
   img: PEImage
   info: ParseInfo
+
+proc parseExports(img, info) =
+  if not img.dirs.contains Dir.Export: return
+  let expDir = img.dirs[Dir.Export]
+  if expDir.virtualAddr == 0 or expDir.virtualSize == 0: return
+
+  let 
+    exportDirTable = cast[ptr ExportDirectoryTableRaw](img.resolve(expDir.virtualAddr))
+    exportAddrTable = cast[ptr UncheckedArray[int32]](img.resolve int exportDirTable.exportAddressRVA)
+    exportNameTable = cast[ptr UncheckedArray[int32]](img.resolve int exportDirTable.namePointerRVA)
+    exportOrdinalTable = cast[ptr UncheckedArray[uint16]](img.resolve int exportDirTable.ordinalTableRVA)
+
+  var entries: Table[int, Export]
+
+  for addrIndex in 0..<exportDirTable.adressTableEntries:
+    let 
+      ordinal = addrIndex.int + exportDirTable.ordinalBase.int
+      posInMemory = exportAddrTable[addrIndex].int
+
+    if (posInMemory >= expDir.virtualAddr) and posInMemory <= (expDir.virtualAddr + expDir.virtualSize):
+      entries[ordinal] = Export(
+        kind: ExportKind.Forwarder, ordinal: ordinal, double: $cast[pointer](img.resolve posInMemory)
+      )
+    else:
+      entries[ordinal] = Export(
+        kind: ExportKind.Real, ordinal: ordinal, address: exportAddrTable[addrIndex]
+      )
+
+  # index into ordinal table equals to index in name ptr table. So we will reverse this process to support
+  # symbols without name
+  for ordIndex in 0..<exportDirTable.numberOfNamePointer:
+    let ordinalGot = exportOrdinalTable[ordIndex].int + exportDirTable.ordinalBase.int
+    let namePtr = cast[pointer](img.resolve exportNameTable[ordIndex])
+
+    var newName = $namePtr
+
+    entries[ordinalGot.int].name = some(newName)
+
+  for v in entries.mvalues:
+    img.exports.entries.add move(v)
+
 
 proc parseSections(img, info) = 
   let secRaw = cast[ptr UncheckedArray[PESectionRaw]](info.pe + info.optionalSize + sizeof(DataDirectoryRaw) * len(img.dirs))
@@ -152,10 +224,7 @@ proc parseSections(img, info) =
     let section = secRaw[currIndex]
     var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr)
 
-    # set name
-    for n in section.name:
-      if n == '\0': break
-      result.name.add n
+    result.name = $cast[pointer](unsafeAddr(section.name))
 
     # characteristics
     for f in SectionFlags.enumRightRange:
@@ -242,6 +311,8 @@ proc parse(img, info) =
 
   img.parseDataDirs info
   img.parseSections info
+
+  img.parseExports info
 
 # ctor
 proc newFromFile*(_: type PEImage, fileName: string): PEImage = 

@@ -197,3 +197,16 @@ type
 
   ImportDirectoryTableRaw {.packed.} = object
     importLookupTableRva, timeDataStamp, forwaderChain, nameRVa, importAddressTableRVA: uint32
+
+  ExportDirectoryTableRaw {.packed.} = object
+    exportFlags: uint32
+    timeDateStamp*: uint32
+    majorVer*, minorVer*: uint16
+
+    nameRVA*, ordinalBase*: uint32
+    adressTableEntries*: uint32
+
+    numberOfNamePointer*: uint32
+    exportAddressRVA*: uint32
+    namePointerRVA*: uint32
+    ordinalTableRVA*: uint32
