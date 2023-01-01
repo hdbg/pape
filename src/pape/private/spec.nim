@@ -66,81 +66,81 @@ type
     GuardCF = 0x4000
     TerminalServerAware = 0x8000
   
-  DosHeaderRaw = object
-    e_magic: array[2, char]
+  DosHeaderRaw* = object
+    e_magic*: array[2, char]
     e_cblp, e_cp, e_crlc, e_cparhdr, e_min_alloc, e_maxalloc: uint16
     e_ss, e_esp, e_csym, e_ip, e_cs, e_lfarlc, e_ovno: uint16
     e_res1: array[8, char]
     e_oemid, e_oeminfo: uint16
     e_res2: array[0x14, char]
-    e_lfanew: uint32
+    e_lfanew*: uint32
 
   COFF* = object
-    magic: array[4, char]
+    magic*: array[4, char]
     machine*: COFFMachine
     sectionsCount*: uint16
     timestamp*: uint32
     ptrSymbolTable: uint32
     numOfSymbols*: uint32
-    sizeOfOptional: uint16
+    sizeOfOptional*: uint16
     characteristics*: uint16
 
   PEMagic* {.pure, size:2.} = enum
     PE32 = 0x10b
     PE64 = 0x20b
 
-  DataDirectoryRaw = object
-    va, size: uint32
+  DataDirectoryRaw* = object
+    va*, size*: uint32
 
-  PE32Raw {.packed.} = object
-    magic: PEMagic
-    majorLinker, minorLinker: uint8
-    sizeOfCode: uint32
-    sizeOfInitialized, sizeOfUnInitialized: uint32
-    entryPoint, baseOfCode, baseOfData: uint32
-
-    # common
-    imageBase: uint32
-    sectionAlignment, fileAlignment: uint32
-
-    majorOSVer, minorOsVer: uint16
-    majorImageVer, minorImageVer: uint16
-    majorSubSystemVer, minorSubsytemVer: uint16
-    win32VerValue: uint32
-
-    sizeOfImage, sizeOfHeaders, checkSum: uint32
-    subSystem: WinSubsystem
-    dllCharacteristics: uint16
-
-    sizeOfStackReserve, sizeOfStackCommit, sizeOfHeapReserve, sizeOfHeapCommit: uint32
-    ldrFlags: uint32
-
-    numberOfRvaAndSizes: uint32
-
-  PE64Raw {.packed.} = object
-    magic: PEMagic
-    majorLinker, minorLinker: uint8
-    sizeOfCode: uint32
-    sizeOfInitialized, sizeOfUnInitialized: uint32
-    entryPoint, baseOfCode: uint32
+  PE32Raw* {.packed.} = object
+    magic*: PEMagic
+    majorLinker*, minorLinker*: uint8
+    sizeOfCode*: uint32
+    sizeOfInitialized*, sizeOfUnInitialized*: uint32
+    entryPoint*, baseOfCode*, baseOfData*: uint32
 
     # common
-    imageBase: uint64
-    sectionAlignment, fileAlignment: uint32
+    imageBase*: uint32
+    sectionAlignment*, fileAlignment*: uint32
 
-    majorOSVer, minorOsVer: uint16
-    majorImageVer, minorImageVer: uint16
-    majorSubSystemVer, minorSubsytemVer: uint16
-    win32VerValue: uint32
+    majorOSVer*, minorOsVer*: uint16
+    majorImageVer*, minorImageVer*: uint16
+    majorSubSystemVer*, minorSubsytemVer*: uint16
+    win32VerValue*: uint32
 
-    sizeOfImage, sizeOfHeaders, checkSum: uint32
-    subSystem: WinSubsystem
-    dllCharacteristics: uint16
+    sizeOfImage*, sizeOfHeaders*, checkSum*: uint32
+    subSystem*: WinSubsystem
+    dllCharacteristics*: uint16
 
-    sizeOfStackReserve, sizeOfStackCommit, sizeOfHeapReserve, sizeOfHeapCommit: uint64
+    sizeOfStackReserve*, sizeOfStackCommit*, sizeOfHeapReserve*, sizeOfHeapCommit*: uint32
     ldrFlags: uint32
 
-    numberOfRvaAndSizes: uint32
+    numberOfRvaAndSizes*: uint32
+
+  PE64Raw* {.packed.} = object
+    magic*: PEMagic
+    majorLinker*, minorLinker*: uint8
+    sizeOfCode*: uint32
+    sizeOfInitialized*, sizeOfUnInitialized*: uint32
+    entryPoint*, baseOfCode*: uint32
+
+    # common
+    imageBase*: uint64
+    sectionAlignment*, fileAlignment*: uint32
+
+    majorOSVer*, minorOsVer*: uint16
+    majorImageVer*, minorImageVer*: uint16
+    majorSubSystemVer*, minorSubsytemVer*: uint16
+    win32VerValue*: uint32
+
+    sizeOfImage*, sizeOfHeaders*, checkSum*: uint32
+    subSystem*: WinSubsystem
+    dllCharacteristics*: uint16
+
+    sizeOfStackReserve*, sizeOfStackCommit*, sizeOfHeapReserve*, sizeOfHeapCommit*: uint64
+    ldrFlags: uint32
+
+    numberOfRvaAndSizes*: uint32
 
   #[
     - DOS
@@ -185,20 +185,20 @@ type
     MemRead =                   0x40000000
     MemWrite =                  0x80000000
 
-  PESectionRaw {.packed.} = object
-    name: array[8, char]
-    virtualSize, virtualAddr: uint32
+  PESectionRaw* {.packed.} = object
+    name*: array[8, char]
+    virtualSize*, virtualAddr*: uint32
 
-    sizeOfRaw, ptrToRaw: uint32
-    ptrToRelocs, ptrToLines: uint32
-    numberOfRelocs, numberOfLineNumbers: uint16
+    sizeOfRaw*, ptrToRaw*: uint32
+    ptrToRelocs*, ptrToLines*: uint32
+    numberOfRelocs*, numberOfLineNumbers*: uint16
 
-    characteristics: uint32 #   implement via hash set
+    characteristics*: uint32 #   implement via hash set
 
-  ImportDirectoryTableRaw {.packed.} = object
-    importLookupTableRva, timeDataStamp, forwaderChain, nameRVa, importAddressTableRVA: uint32
+  ImportDirectoryTableRaw* {.packed.} = object
+    importLookupTableRva*, timeDataStamp*, forwaderChain*, nameRVA*, importAddressTableRVA*: uint32
 
-  ExportDirectoryTableRaw {.packed.} = object
+  ExportDirectoryTableRaw* {.packed.} = object
     exportFlags: uint32
     timeDateStamp*: uint32
     majorVer*, minorVer*: uint16

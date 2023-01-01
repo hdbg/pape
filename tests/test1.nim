@@ -11,22 +11,8 @@ import pape
 
 let exePath = absolutePath("tests" / "Audacity.exe")
 
-let d3d  = PEImage.newFromFile("tests" / "kernel32.dll") 
-
-echo "#############"
-for e in d3d.exports.entries:
-  let n = if e.name.isSome(): e.name.get else: ""
-
-  let addrS = if e.kind == ExportKind.Real: &"Addr: ({toHex(e.address)})" else: &"Forward: ({e.double})"
-
-  echo &"Name: ({n}) Ord: ({e.ordinal.toHex}) {addrS}"
-
-echo "#############"
-
 # parsing
 block:
-  break
-
   suite "Loading":
 
     test "from file":
