@@ -22,3 +22,7 @@ proc newFromFile*(_: type PEImage, fileName: string): PEImage =
   
 proc newFromPtr*(_: type PEImage, buffer: pointer): PEImage = 
   new result
+  var pi = ParseInfo(buffer: cast[int](buffer))
+
+  result.parse pi
+  
