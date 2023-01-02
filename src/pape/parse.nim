@@ -44,7 +44,6 @@ using
   img: PEImage
   info: ParseInfo
 
-import strutils, strformat
 proc parseImports[T: PE32Raw or PE64Raw](img, info) = 
   if not img.dirs.contains Dir.Import: return
   let impDir = img.dirs[Dir.Import]
