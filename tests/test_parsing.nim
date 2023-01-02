@@ -12,7 +12,7 @@ import pape
 let exePath = absolutePath("tests" / "subjects" / "Audacity.exe")
 
 
-proc audacityVerify(p: PEImage) = 
+template audacityVerify(p: PEImage) = 
   test "coff":
     check: 
         p.machine == COFFMachine.AMD64
@@ -75,25 +75,47 @@ proc audacityVerify(p: PEImage) =
 
     test "imports":
       var someImports = {"lib-transactions.dll": @[
-        Import(kind: ImportKind.Name, name: "??1TransactionScopeImpl@@UEAA@XZ", thunk: 0x115e0a8, hint: 0x5),
-        Import(kind: ImportKind.Name, name: "??0TransactionScope@@QEAA@AEAVAudacityProject@@PEBD@Z", thunk: 0x115dec2, hint: 0x1),
-        Import(kind: ImportKind.Name, name: "??1TransactionScope@@QEAA@XZ", thunk: 0x115defa, hint: 0x4),
-        Import(kind: ImportKind.Name, name: "?Commit@TransactionScope@@QEAA_NXZ", thunk: 0x115df1a, hint: 0xF),
-        Import(kind: ImportKind.Name, name: "?Assign@?$GlobalVariable@UFactory@TransactionScope@@$$CBV?$function@$$A6A?AV?$unique_ptr@VTransactionScopeImpl@@U?$default_delete@VTransactionScopeImpl@@@std@@@std@@AEAVAudacityProject@@@Z@std@@$0A@$00@@CA?AV?$function@$$A6A?AV?$unique_ptr@VTransactionScopeImpl@@U?$default_delete@VTransactionScopeImpl@@@std@@@std@@AEAVAudacityProject@@@Z@std@@$$QEAV23@@Z", thunk: 0x115df40, hint: 0xE),
-        Import(kind: ImportKind.Name, name: "??0TransactionScopeImpl@@QEAA@XZ", thunk: 0x115e0cc, hint: 0x3),
+        Import(kind: ImportKind.Name, name: r"??1TransactionScopeImpl@@UEAA@XZ", thunk: 0x115e0a8, hint: 0x5),
+        Import(kind: ImportKind.Name, name: r"??0TransactionScope@@QEAA@AEAVAudacityProject@@PEBD@Z", thunk: 0x115dec2, hint: 0x1),
+        Import(kind: ImportKind.Name, name: r"??1TransactionScope@@QEAA@XZ", thunk: 0x115defa, hint: 0x4),
+        Import(kind: ImportKind.Name, name: r"?Commit@TransactionScope@@QEAA_NXZ", thunk: 0x115df1a, hint: 0xF),
+        Import(kind: ImportKind.Name, name: r"?Assign@?$GlobalVariable@UFactory@TransactionScope@@$$CBV?$function@$$A6A?AV?$unique_ptr@VTransactionScopeImpl@@U?$default_delete@VTransactionScopeImpl@@@std@@@std@@AEAVAudacityProject@@@Z@std@@$0A@$00@@CA?AV?$function@$$A6A?AV?$unique_ptr@VTransactionScopeImpl@@U?$default_delete@VTransactionScopeImpl@@@std@@@std@@AEAVAudacityProject@@@Z@std@@$$QEAV23@@Z", thunk: 0x115df40, hint: 0xE),
+        Import(kind: ImportKind.Name, name: r"??0TransactionScopeImpl@@QEAA@XZ", thunk: 0x115e0cc, hint: 0x3),
       ]}.toTable
 
-      echo p.imports
+      # echo p.imports
+      for (testModName, testModEntries) in someImports.pairs:
+        checkpoint("Looking for import module " & testModName)
+        var currMod = none[ModuleImport]()
+        for realMod in p.imports:
+          if realMod.name == testModName:
+            currMod = some(realMod)
+            break
+        if currMod.isNone:
+          fail()
+
+        for fakeEntry in testModEntries:
+          checkpoint("Looking for entry " & fakeEntry.name)
+          var currEntry = none[Import]()
+          for realEntry in currMod.get.entries:
+            # echo "cmp lhs(" & realEntry.name & ") rhs(" & fakeEntry.name & ")"
+            if realEntry.name == fakeEntry.name:
+              
+              currEntry = some(realEntry)
+              break
+          if currEntry.isNone:
+            fail()
+          
 
 
-block:
-  suite "Loading":
 
-    test "from file":
-      var p = PEImage.newFromFile(exePath)
-      # echo p.exports.entries
-      p.audacityVerify
+suite "Loading":
 
-  var p = PEImage.newFromFile(exePath)
+  test "from file":
+    var p = PEImage.newFromFile(exePath)
+    # echo p.exports.entries
+    p.audacityVerify
+
+# var p = PEImage.newFromFile(exePath)
   
     

@@ -96,7 +96,7 @@ proc parseImports[T: PE32Raw or PE64Raw](img, info) =
       
       currIndex.inc
 
-      img.imports.add newModule
+    img.imports.add newModule
 
     # inc dir
     currDirIndex.inc
