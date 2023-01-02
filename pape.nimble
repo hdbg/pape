@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.0.1"
+version       = "0.0.2"
 author        = "hdbg"
 description   = "Portable Executable parsing library"
 license       = "MIT"
