@@ -121,4 +121,4 @@ type
 # exceptions
 type
   PAPEDefect* = object of Defect
-  PAPEException* = object of Exception
+  PAPEException* = object of IOError
