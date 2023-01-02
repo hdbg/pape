@@ -71,6 +71,23 @@ type
     of Forwarder:
       double*: string
 
+  BaseRelocKind* {.pure.} = enum
+    Absolute
+    High
+    Low
+    HighLow
+    HighAdj
+    MipsJmpAddr
+    ArmMov32
+    RiscV_High20
+    Thumb_Mov32
+    RiscV_Low12I
+    RiscV_Low12S
+    LoongArch32_MarkLA
+    LoongArch64_MarkLa
+    JmpAddr16
+    Dir64
+
 
   PEImage* = ref object
     magic*: PEMagic

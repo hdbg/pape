@@ -210,3 +210,6 @@ type
     exportAddressRVA*: uint32
     namePointerRVA*: uint32
     ordinalTableRVA*: uint32
+
+  BaseRelocBlock* {.packed.} = object
+    pageRVA, blockSize: uint32
