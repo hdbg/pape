@@ -9,6 +9,11 @@ proc isZeroMem*[X](val: X): bool =
 
   val == sample
 
+proc isNullMem*[X](val: ptr X): bool =
+  result = true
+  for a in cast[int](val)..(cast[int](val) + sizeof(X)):
+    if cast[ptr uint8](a)[] != 0: return false
+
 proc resolve*(p: PEImage, offset: int): ptr byte =
   result = nil 
   # resolve a virtual addr to file offset

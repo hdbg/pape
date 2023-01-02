@@ -113,7 +113,7 @@ type
     dllCharacteristics*: uint16
 
     sizeOfStackReserve*, sizeOfStackCommit*, sizeOfHeapReserve*, sizeOfHeapCommit*: uint32
-    ldrFlags: uint32
+    ldrFlags*: uint32
 
     numberOfRvaAndSizes*: uint32
 
@@ -138,7 +138,7 @@ type
     dllCharacteristics*: uint16
 
     sizeOfStackReserve*, sizeOfStackCommit*, sizeOfHeapReserve*, sizeOfHeapCommit*: uint64
-    ldrFlags: uint32
+    ldrFlags*: uint32
 
     numberOfRvaAndSizes*: uint32
 

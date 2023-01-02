@@ -46,10 +46,17 @@ type
     case kind*: ImportKind
     of ImportKind.Ordinal:
       ordinal*: int
-    of Name:
+    of ImportKind.Name:
       name*: string
-    hint*: int
-    address*: int         # address to which write the imported symbol
+      hint*: int
+
+    thunk*, originalThunk*: int         # address to which write the imported symbol
+
+  ModuleImport* = object
+    name*: string
+    timeDataStampRVA: int
+      # module name -> entries
+    entries*: seq[Import]
 
   ExportKind* {.pure.} = enum
     Real
@@ -100,7 +107,7 @@ type
     sections*: seq[Section]
 
     # details
-    imports*: Table[string, seq[Import]]
+    imports*: seq[ModuleImport]
     exports*: tuple[
       timestamp: Time,
       ver: VerDouble,

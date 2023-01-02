@@ -1,6 +1,8 @@
-import std/[sets, tables, enumutils, times, segfaults, macros, options]
+import std/[sets, tables, enumutils, times, segfaults, macros, options, typetraits]
 
 import types, helpers
+
+# {.hint[HoleEnumConv]: off.}
 
 type
   ParseInfo* = ref object
@@ -41,6 +43,64 @@ proc `$`(x: pointer): string =
 using
   img: PEImage
   info: ParseInfo
+
+import strutils, strformat
+proc parseImports[T: PE32Raw or PE64Raw](img, info) = 
+  if not img.dirs.contains Dir.Import: return
+  let impDir = img.dirs[Dir.Import]
+  if impDir.virtualAddr == 0 or impDir.virtualSize == 0: return
+
+  let importDirTables = cast[ptr UncheckedArray[ImportDirectoryTableRaw]](img.resolve impDir.virtualAddr)
+  var currDirIndex = 0
+
+  while not helpers.isNullMem(unsafeAddr(importDirTables[currDirIndex])):
+    var newModule = ModuleImport()
+
+    newModule.name = $cast[pointer](img.resolve int importDirTables[currDirIndex].nameRVA)
+
+    when T is PE32Raw:
+      type BackEndNum =  uint32
+    else:
+      type BackEndNum =  uint64
+
+    let 
+      lookup = cast[ptr UncheckedArray[BackEndNum]](img.resolve int importDirTables[currDirIndex].importLookupTableRva)
+      addrTable = cast[type(lookup)](img.resolve int importDirTables[currDirIndex].importAddressTableRVA)
+    var currIndex = 0
+
+    while lookup[currIndex] != 0:
+      const 
+        ordMask = when T is Pe32Raw: BackEndNum(0x80000000'u32) else: BackEndNum(0x8000000000000000'u64) 
+        ordMaskNumber = BackEndNum(uint16.high) # 2 lower bytes
+        hintNameTableRvaMask = BackEndNum(uint32.high and not(1'u32 shl 32))
+
+      let 
+        currLookup = lookUp[currIndex]
+        origThunk = cast[int](addr(lookUp[currIndex]))
+        thunk = cast[int](addr(addrTable[currIndex]))
+
+      # echo &"OrdMask: {toHex(ordMask)}({ordMask}), ordMaskNumber: {toHex(ordMaskNumber)}, hintTable: {toHex(hintNameTableRvaMask)}"
+
+      if (ordMask and currLookup) != 0:
+        # import by ord
+        let ordinal = int(currLookup and ordMaskNumber)
+        newModule.entries.add Import(kind: ImportKind.Ordinal, ordinal: ordinal, thunk: thunk, originalThunk: origThunk)
+      else:
+        # import by name
+        let 
+          hintTable = img.resolve(int(hintNameTableRvaMask and currLookup))
+          hint = int(cast[ptr uint16](hintTable)[])
+          name = $cast[pointer](hintTable + sizeof(uint16))
+
+        newModule.entries.add Import(kind: ImportKind.Name, name: name, hint: hint, thunk: thunk, originalThunk: origThunk)
+      
+      currIndex.inc
+
+      img.imports.add newModule
+
+    # inc dir
+    currDirIndex.inc
+
 
 proc parseExports(img, info) =
   if not img.dirs.contains Dir.Export: return
@@ -180,3 +240,6 @@ proc parse*(img, info) =
   img.parseSections info
 
   img.parseExports info
+
+  if img.magic == PEMagic.PE32: parseImports[PE32Raw](img, info)
+  elif img.magic == PEMagic.PE64: parseImports[PE64Raw](img, info)
