@@ -44,6 +44,76 @@ using
   img: PEImage
   info: ParseInfo
 
+import strutils, strformat
+
+proc parseReloc(img, info) = 
+  if not img.dirs.contains Dir.BaseRelocation: return
+  let relocDir = img.dirs[Dir.BaseRelocation]
+  if relocDir.virtualAddr == 0 or relocDir.virtualSize == 0: return
+
+  var
+    currBlock = cast[ptr BaseRelocBlockRaw](img.resolve relocDir.virtualAddr) 
+    totalParsedBytes = 0
+
+  while totalParsedBytes < relocDir.virtualSize:
+    var
+      newBlock = BaseRelocBlock(pageRVA: currBlock.pageRVA.int)
+      totalBlockBytes = 0
+      currentReloc = cast[ptr uint16](cast[int](currBlock) + sizeof(BaseRelocBlockRaw))
+
+    while totalBlockBytes < (currBlock.blockSize.int - sizeof(BaseRelocBlockRaw)):
+      
+
+      let 
+        rawKind = (currentReloc[] and 0xf000) shr 12
+        rawOffset = currentReloc[] and 0xfff
+
+      # echo &"reloc: {tohex(currentReloc[])}, rawKind: {toHex(rawKind)}, rawOffset: {toHex(rawOffset)}"
+
+      var relocKind: BaseRelocKind
+
+      case rawKind
+      of 0: relocKind = Absolute
+      of 1: relocKind = High
+      of 2: relocKind = Low
+      of 3: relocKind = HighLow
+      of 4: relocKind = HighAdj
+      of 5:
+        case img.machine
+        of Mips16, MIPSFPU, MipsFpu16: relocKind = MipsJmpAddr
+        of ARM, ARM64, Thumb: relocKind = ArmMov32
+        of RISCV32, RISCV64, RISCV128: relocKind = RiscV_High20
+        else: raise PAPEDefect.newException("Invalid platform for reloc type 5")
+      of 7:
+        case img.machine
+        of Thumb: relocKind = Thumb_Mov32
+        of RISCV32, RISCV64, RISCV128: relocKind = RiscV_Low12I
+        else: raise PAPEDefect.newException("Invalid platform for reloc type 7")
+      of 8:
+        case img.machine
+        of RISCV32, RISCV64, RISCV128: relocKind = RiscV_Low12S
+        of LoongArch32: relocKind = LoongArch32_MarkLA
+        of LoongArch64: relocKind = LoongArch64_MarkLa 
+        else: raise PAPEDefect.newException("Invalid platform for reloc type 8")
+      of 9:
+        if img.machine notin [Mips16, MIPSFPU, MipsFpu16]:
+          raise PAPEDefect.newException("Invalid platform for reloc type 9")
+        relocKind = Mips_JmpAddr16
+      of 10: relocKind = Dir64
+      else:
+        raise PAPEDefect.newException("Invalid reloc type: " & tohex(rawKind))
+
+      newBlock.relocs.add BaseReloc(kind: relocKind, offset: int(rawOffset))
+      # inc
+      currentReloc = cast[type(currentReloc)](cast[int](currentReloc) + sizeof(uint16))
+      totalBlockBytes.inc sizeof(uint16)
+
+    # end raw block parsing
+    img.reloc.add newBlock
+    totalParsedBytes.inc currBlock.blockSize.int
+    currBlock = cast[type(currBlock)](cast[int](currBlock) + int(currBlock.blockSize))
+
+
 proc parseImports[T: PE32Raw or PE64Raw](img, info) = 
   if not img.dirs.contains Dir.Import: return
   let impDir = img.dirs[Dir.Import]
@@ -242,3 +312,5 @@ proc parse*(img, info) =
 
   if img.magic == PEMagic.PE32: parseImports[PE32Raw](img, info)
   elif img.magic == PEMagic.PE64: parseImports[PE64Raw](img, info)
+
+  img.parseReloc info

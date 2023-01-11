@@ -85,8 +85,16 @@ type
     RiscV_Low12S
     LoongArch32_MarkLA
     LoongArch64_MarkLa
-    JmpAddr16
+    Mips_JmpAddr16
     Dir64
+
+  BaseReloc* = object
+    kind*: BaseRelocKind
+    offset*: int
+
+  BaseRelocBlock* = object
+    pageRVA*: int
+    relocs*: seq[BaseReloc]
 
 
   PEImage* = ref object
@@ -133,6 +141,7 @@ type
 
       entries: seq[Export]
     ]
+    reloc*: seq[BaseRelocBlock]
 
 
 # exceptions
