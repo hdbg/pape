@@ -1,4 +1,4 @@
-import std/[sets, tables, enumutils, times, segfaults, macros, options, typetraits]
+import std/[sets, tables, enumutils, times, segfaults, macros, options, typetraits, strutils]
 
 import types, helpers
 
@@ -54,10 +54,8 @@ using
   img: PEImage
   info: ParseInfo
 
-import strutils, strformat
-
 proc parseReloc(img, info) = 
-  if not img.dirs.contains Dir.BaseRelocation: return
+  if (not img.dirs.contains Dir.BaseRelocation) or LoadRelocs notin info.opts: return
   let relocDir = img.dirs[Dir.BaseRelocation]
   if relocDir.virtualAddr == 0 or relocDir.virtualSize == 0: return
 
@@ -72,13 +70,9 @@ proc parseReloc(img, info) =
       currentReloc = cast[ptr uint16](cast[int](currBlock) + sizeof(BaseRelocBlockRaw))
 
     while totalBlockBytes < (currBlock.blockSize.int - sizeof(BaseRelocBlockRaw)):
-      
-
       let 
         rawKind = (currentReloc[] and 0xf000) shr 12
         rawOffset = currentReloc[] and 0xfff
-
-      # echo &"reloc: {tohex(currentReloc[])}, rawKind: {toHex(rawKind)}, rawOffset: {toHex(rawOffset)}"
 
       var relocKind: BaseRelocKind
 
