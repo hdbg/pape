@@ -9,7 +9,7 @@ type
 
   Section* = object
     name*: string
-    virtualSize*, virtualAddr*: int
+    virtualSize*, virtualAddr*, rawSize*: int
 
     data*: seq[byte] # get raw data size by section.data.len
     characteristics*: HashSet[SectionFlags]

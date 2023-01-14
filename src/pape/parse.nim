@@ -5,6 +5,14 @@ import types, helpers
 # {.hint[HoleEnumConv]: off.}
 
 type
+  ParseOptions* {.pure.} = enum
+    LoadSections
+    LoadSectionsData
+
+    LoadImports
+    LoadExports
+    LoadRelocs
+
   ParseInfo* = ref object
     buffer*: int
 
@@ -14,6 +22,8 @@ type
 
     optionalSize: int
     numberOfRvaAndSizes: int
+
+    opts*: set[ParseOptions]
 
 converter toInt[T](x: ptr T): int = 
   cast[int](x)
@@ -45,7 +55,7 @@ using
   info: ParseInfo
 
 proc parseImports[T: PE32Raw or PE64Raw](img, info) = 
-  if not img.dirs.contains Dir.Import: return
+  if (not img.dirs.contains Dir.Import) or LoadImports notin info.opts: return
   let impDir = img.dirs[Dir.Import]
   if impDir.virtualAddr == 0 or impDir.virtualSize == 0: return
 
@@ -102,7 +112,7 @@ proc parseImports[T: PE32Raw or PE64Raw](img, info) =
 
 
 proc parseExports(img, info) =
-  if not img.dirs.contains Dir.Export: return
+  if (not img.dirs.contains Dir.Export) or LoadExports notin info.opts: return
   let expDir = img.dirs[Dir.Export]
   if expDir.virtualAddr == 0 or expDir.virtualSize == 0: return
 
@@ -143,12 +153,14 @@ proc parseExports(img, info) =
 
 
 proc parseSections(img, info) = 
+  if LoadSections notin info.opts: return
+
   let secRaw = cast[ptr UncheckedArray[PESectionRaw]](info.pe + info.optionalSize + sizeof(DataDirectoryRaw) * len(img.dirs))
   var currIndex = 0
 
   while (not isZeroMem secRaw[currIndex]) and (currIndex < info.coff.sectionsCount.int):
     let section = secRaw[currIndex]
-    var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr)
+    var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr, rawSize: int section.sizeOfRaw)
 
     result.name = $cast[pointer](unsafeAddr(section.name))
 
@@ -159,7 +171,7 @@ proc parseSections(img, info) =
 
     
     # copy data
-    if section.ptrToRaw != 0:
+    if (section.ptrToRaw != 0) and LoadSectionsData in info.opts:
       result.data.setLen section.sizeOfRaw
 
       copyMem(
