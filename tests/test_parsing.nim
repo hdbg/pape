@@ -99,6 +99,10 @@ template audacityVerify(p: PEImage) =
             break
         if currEntry.isNone:
           fail()
+
+  # test "relocs":
+
+    
           
 
 

@@ -71,6 +71,31 @@ type
     of Forwarder:
       double*: string
 
+  BaseRelocKind* {.pure.} = enum
+    Absolute
+    High
+    Low
+    HighLow
+    HighAdj
+    MipsJmpAddr
+    ArmMov32
+    RiscV_High20
+    Thumb_Mov32
+    RiscV_Low12I
+    RiscV_Low12S
+    LoongArch32_MarkLA
+    LoongArch64_MarkLa
+    Mips_JmpAddr16
+    Dir64
+
+  BaseReloc* = object
+    kind*: BaseRelocKind
+    offset*: int
+
+  BaseRelocBlock* = object
+    pageRVA*: int
+    relocs*: seq[BaseReloc]
+
 
   PEImage* = ref object
     magic*: PEMagic
@@ -116,9 +141,10 @@ type
 
       entries: seq[Export]
     ]
+    reloc*: seq[BaseRelocBlock]
 
 
 # exceptions
 type
   PAPEDefect* = object of Defect
-  PAPEException* = object of Exception
+  PAPEException* = object of IOError

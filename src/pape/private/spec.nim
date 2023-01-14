@@ -23,7 +23,7 @@ type
     EBC = 0xebc
     RISCV32 = 0x5032
     RISCV64 = 0x5064
-    RISV128 = 0x5128
+    RISCV128 = 0x5128
     LoongArch32 = 0x6232
     LoongArch64 = 0x6264
     
@@ -210,3 +210,6 @@ type
     exportAddressRVA*: uint32
     namePointerRVA*: uint32
     ordinalTableRVA*: uint32
+
+  BaseRelocBlockRaw* {.packed.} = object
+    pageRVA*, blockSize*: uint32

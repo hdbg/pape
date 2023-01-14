@@ -10,6 +10,10 @@ const
     ParseOptions.LoadSections, ParseOptions.LoadSectionsData,
     ParseOptions.LoadImports, ParseOptions.LoadExports, ParseOptions.LoadRelocs
   }
+iterator iterRelocs*(img: PEImage): tuple[offset: int, kind: BaseRelocKind] = 
+  for b in img.reloc:
+    for r in b.relocs:
+      yield (b.pageRVA + r.offset, r.kind)
 
 # ctor
 proc newFromFile*(_: type PEImage, fileName: string, opts: set[ParseOptions] = defParseOptions): PEImage = 
