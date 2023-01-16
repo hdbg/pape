@@ -235,7 +235,6 @@ proc parseExports(img, info) =
 
 
 proc parseSections(img, info) =
-  echo info.opts 
   if LoadSections notin info.opts: return
 
   let secRaw = cast[ptr UncheckedArray[PESectionRaw]](info.pe + info.optionalSize + sizeof(DataDirectoryRaw) * len(img.dirs))
@@ -246,8 +245,6 @@ proc parseSections(img, info) =
     var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr, rawSize: int section.sizeOfRaw, rawAddr: int section.ptrToRaw)
 
     result.name = $cast[pointer](unsafeAddr(section.name))
-
-    echo "loaded section: ", result.name
 
     # characteristics
     for f in SectionFlags.enumRightRange:
@@ -264,7 +261,8 @@ proc parseSections(img, info) =
         cast[pointer](info.buffer + section.ptrToRaw.int), 
         result.data.len
       )
-      img.sections.add move(result)
+      
+    img.sections.add move(result)
 
     currIndex.inc
 
