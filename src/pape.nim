@@ -6,7 +6,7 @@ export pape.types
 export parse.ParseOptions
 
 const
-  defParseOptions = {
+  defParseOptions* = {
     ParseOptions.LoadSections, ParseOptions.LoadSectionsData,
     ParseOptions.LoadImports, ParseOptions.LoadExports, ParseOptions.LoadRelocs
   }

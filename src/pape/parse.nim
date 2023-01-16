@@ -1,4 +1,4 @@
-import std/[sets, tables, enumutils, times, segfaults, macros, options, typetraits, strutils]
+import std/[sets, tables, enumutils, times, segfaults, macros, options, typetraits, strutils, strformat]
 
 import types, helpers
 
@@ -12,6 +12,8 @@ type
     LoadImports
     LoadExports
     LoadRelocs
+
+    OperatingOnMapped
 
   ParseInfo* = ref object
     buffer*: int
@@ -54,13 +56,29 @@ using
   img: PEImage
   info: ParseInfo
 
+proc resolve(img, info; offset: int): ptr byte =
+  result = nil 
+
+  if OperatingOnMapped in info.opts:
+    return cast[ptr byte](info.buffer + offset)
+
+  # resolve a virtual addr to file offset
+  for s in img.sections:
+    if offset >= s.virtualAddr and offset <= (s.virtualAddr + s.virtualSize):
+      # echo &"mapping {toHex(offset)} to {toHex(info.buffer + (offset - s.virtualAddr))} with base {toHex(info.buffer)} in {s.name}"
+      return cast[ptr byte](info.buffer + (offset - s.virtualAddr) + s.rawAddr)
+
+  raise PAPEDefect.newException("Can't resolve offset by virtual address: " & tohex(offset))
+
+# actual shit
+
 proc parseReloc(img, info) = 
   if (not img.dirs.contains Dir.BaseRelocation) or LoadRelocs notin info.opts: return
   let relocDir = img.dirs[Dir.BaseRelocation]
   if relocDir.virtualAddr == 0 or relocDir.virtualSize == 0: return
 
   var
-    currBlock = cast[ptr BaseRelocBlockRaw](img.resolve relocDir.virtualAddr) 
+    currBlock = cast[ptr BaseRelocBlockRaw](img.resolve(info, relocDir.virtualAddr)) 
     totalParsedBytes = 0
 
   while totalParsedBytes < relocDir.virtualSize:
@@ -123,13 +141,13 @@ proc parseImports[T: PE32Raw or PE64Raw](img, info) =
   let impDir = img.dirs[Dir.Import]
   if impDir.virtualAddr == 0 or impDir.virtualSize == 0: return
 
-  let importDirTables = cast[ptr UncheckedArray[ImportDirectoryTableRaw]](img.resolve impDir.virtualAddr)
+  let importDirTables = cast[ptr UncheckedArray[ImportDirectoryTableRaw]](img.resolve(info, impDir.virtualAddr))
   var currDirIndex = 0
 
   while not helpers.isNullMem(unsafeAddr(importDirTables[currDirIndex])):
     var newModule = ModuleImport()
 
-    newModule.name = $cast[pointer](img.resolve int importDirTables[currDirIndex].nameRVA)
+    newModule.name = $cast[pointer](img.resolve(info, int importDirTables[currDirIndex].nameRVA))
 
     when T is PE32Raw:
       type BackEndNum =  uint32
@@ -137,8 +155,8 @@ proc parseImports[T: PE32Raw or PE64Raw](img, info) =
       type BackEndNum =  uint64
 
     let 
-      lookup = cast[ptr UncheckedArray[BackEndNum]](img.resolve int importDirTables[currDirIndex].importLookupTableRva)
-      addrTable = cast[type(lookup)](img.resolve int importDirTables[currDirIndex].importAddressTableRVA)
+      lookup = cast[ptr UncheckedArray[BackEndNum]](img.resolve(info, int importDirTables[currDirIndex].importLookupTableRva))
+      addrTable = cast[type(lookup)](img.resolve(info, int importDirTables[currDirIndex].importAddressTableRVA))
     var currIndex = 0
 
     while lookup[currIndex] != 0:
@@ -161,7 +179,7 @@ proc parseImports[T: PE32Raw or PE64Raw](img, info) =
       else:
         # import by name
         let 
-          hintTable = img.resolve(int(hintNameTableRvaMask and currLookup))
+          hintTable = img.resolve(info, int(hintNameTableRvaMask and currLookup))
           hint = int(cast[ptr uint16](hintTable)[])
           name = $cast[pointer](hintTable + sizeof(uint16))
 
@@ -181,10 +199,10 @@ proc parseExports(img, info) =
   if expDir.virtualAddr == 0 or expDir.virtualSize == 0: return
 
   let 
-    exportDirTable = cast[ptr ExportDirectoryTableRaw](img.resolve(expDir.virtualAddr))
-    exportAddrTable = cast[ptr UncheckedArray[int32]](img.resolve int exportDirTable.exportAddressRVA)
-    exportNameTable = cast[ptr UncheckedArray[int32]](img.resolve int exportDirTable.namePointerRVA)
-    exportOrdinalTable = cast[ptr UncheckedArray[uint16]](img.resolve int exportDirTable.ordinalTableRVA)
+    exportDirTable = cast[ptr ExportDirectoryTableRaw](img.resolve(info, expDir.virtualAddr))
+    exportAddrTable = cast[ptr UncheckedArray[int32]](img.resolve(info, int exportDirTable.exportAddressRVA))
+    exportNameTable = cast[ptr UncheckedArray[int32]](img.resolve(info, int exportDirTable.namePointerRVA))
+    exportOrdinalTable = cast[ptr UncheckedArray[uint16]](img.resolve(info, int exportDirTable.ordinalTableRVA))
 
   var entries: Table[int, Export]
 
@@ -195,7 +213,7 @@ proc parseExports(img, info) =
 
     if (posInMemory >= expDir.virtualAddr) and posInMemory <= (expDir.virtualAddr + expDir.virtualSize):
       entries[ordinal] = Export(
-        kind: ExportKind.Forwarder, ordinal: ordinal, double: $cast[pointer](img.resolve posInMemory)
+        kind: ExportKind.Forwarder, ordinal: ordinal, double: $cast[pointer](img.resolve(info, posInMemory))
       )
     else:
       entries[ordinal] = Export(
@@ -206,7 +224,7 @@ proc parseExports(img, info) =
   # symbols without name
   for ordIndex in 0..<exportDirTable.numberOfNamePointer:
     let ordinalGot = exportOrdinalTable[ordIndex].int + exportDirTable.ordinalBase.int
-    let namePtr = cast[pointer](img.resolve exportNameTable[ordIndex])
+    let namePtr = cast[pointer](img.resolve(info, exportNameTable[ordIndex]))
 
     var newName = $namePtr
 
@@ -224,7 +242,7 @@ proc parseSections(img, info) =
 
   while (not isZeroMem secRaw[currIndex]) and (currIndex < info.coff.sectionsCount.int):
     let section = secRaw[currIndex]
-    var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr, rawSize: int section.sizeOfRaw)
+    var result = Section(virtualSize: int section.virtualSize, virtualAddr: int section.virtualAddr, rawSize: int section.sizeOfRaw, rawAddr: int section.ptrToRaw)
 
     result.name = $cast[pointer](unsafeAddr(section.name))
 
