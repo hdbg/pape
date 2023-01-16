@@ -247,6 +247,8 @@ proc parseSections(img, info) =
 
     result.name = $cast[pointer](unsafeAddr(section.name))
 
+    echo "loaded section: ", result.name
+
     # characteristics
     for f in SectionFlags.enumRightRange:
       if (cast[uint32](ord(f)) and section.characteristics) != 0:
