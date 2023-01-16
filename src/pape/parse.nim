@@ -234,7 +234,8 @@ proc parseExports(img, info) =
     img.exports.entries.add move(v)
 
 
-proc parseSections(img, info) = 
+proc parseSections(img, info) =
+  echo info.opts 
   if LoadSections notin info.opts: return
 
   let secRaw = cast[ptr UncheckedArray[PESectionRaw]](info.pe + info.optionalSize + sizeof(DataDirectoryRaw) * len(img.dirs))
